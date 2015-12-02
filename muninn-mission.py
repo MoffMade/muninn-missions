@@ -7,13 +7,15 @@ drone's missions accordingly. Helper functions contained in muninn_common.py
 from dronekit import connect, VehicleMode, LocationGlobalRelative, LocationGlobal, Command
 import time
 import argparse
+import os
 import math
 from pymavlink import mavutil
 import muninn_common as muninn
 
 message_parameters = {'flight_mode': None, 'camera_mode': None, 'launch_land': None, 'hover_distance': None,
                       'follow_distance': None, 'loop_radius': None, 'settings': None, 'GPS': {'lat': None, 'lon': None}}
-status_file = 'status.out'
+message_file_path = os.path.join(os.getcwd(), 'message.out')
+status_file_path = os.path.join(os.getcwd(), 'status.out')
 
 
 def parse_message(message):
@@ -49,7 +51,8 @@ args = parser.parse_args()
 # Connect to the Vehicle
 print 'Connecting to vehicle on: %s' % args.connect
 vehicle = connect(args.connect, wait_ready=True)
-
+last_message_time = os.stat(message_file_path).st_mtime
+last_status_update = 0
 while True:
     """
     Main mission loop:
@@ -62,8 +65,18 @@ while True:
     - Update status log every 5 seconds
     """
     # Update status if 5 seconds has elapsed
+    if abs(time.time() - last_status_update) >= 8:
+        with open(status_file_path, 'r+w') as status_file:
+            # ensure that status file is opened
+            status_file.write("STATUS:")
+        last_status_update = time.time()
 
     # Check for new message
+    if os.stat(message_file_path).st_mtime > last_message_time:
+        # New message has arrived since last check
+        last_message_time = os.stat(message_file_path).st_mtime
+        with open(message_file_path, 'r') as message_file:
+            parse_message(message_file.read())
 
     # Monitor mission
 
