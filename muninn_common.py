@@ -7,6 +7,7 @@ from pymavlink import mavutil
 
 FOLLOW_THRESHOLD = 1.5  # Used to decide if new location should be added to mission for Follow-Me mode
 
+
 def arm_and_takeoff(vehicle, target_altitude):
     """
     -------------CODE TAKEN DIRECTLY FROM DRONEKIT-PYTHON EXAMPLE CODE-------------
@@ -202,4 +203,3 @@ def add_to_follow_mission(vehicle, next_location, altitude):
     # Upload the commands to the drone
     print " Upload new commands to vehicle"
     cmds.upload()
-

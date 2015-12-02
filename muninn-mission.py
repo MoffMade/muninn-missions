@@ -15,6 +15,7 @@ message_parameters = {'flight_mode': None, 'camera_mode': None, 'launch_land': N
                       'follow_distance': None, 'loop_radius': None, 'settings': None, 'GPS': {'lat': None, 'lon': None}}
 status_file = 'status.out'
 
+
 def parse_message(message):
     """
     Parses message from the bluetooth connection to the muninn app, if parameter is not present in the message it is
@@ -26,7 +27,7 @@ def parse_message(message):
     message.split(';')
     for param in message:
         param.split(':')
-        if param[0]=='GPS':
+        if param[0] == 'GPS':
             param[1].split(',')
             new_parameters['GPS'] = {'lat': param[1][0], 'lon': param[1][1]}
         else:
@@ -42,7 +43,7 @@ def parse_message(message):
 parser = argparse.ArgumentParser(
     description='Example which runs basic mission operations. Connects to SITL on local PC by default.')
 parser.add_argument('--connect', default='127.0.0.1:14550',
-                   help="vehicle connection target. Default '127.0.0.1:14550'")
+                    help="vehicle connection target. Default '127.0.0.1:14550'")
 args = parser.parse_args()
 
 # Connect to the Vehicle
@@ -67,9 +68,6 @@ while True:
     # Monitor mission
 
 
-
-
-
 print 'Create a new mission (for current location)'
 muninn.build_loop_mission(vehicle, vehicle.location.global_frame, 50, 50)
 
@@ -88,11 +86,11 @@ vehicle.mode = VehicleMode("AUTO")
 #   distance to the next waypoint.
 
 while True:
-    nextwaypoint=vehicle.commands.next
+    nextwaypoint = vehicle.commands.next
     print 'Distance to waypoint (%s): %s' % (nextwaypoint, muninn.distance_to_current_waypoint(vehicle))
 
-    if nextwaypoint==12:  # Dummy waypoint - as soon as we reach last loop, reset to beginning
-        vehicle.commands.next=0
+    if nextwaypoint == 12:  # Dummy waypoint - as soon as we reach last loop, reset to beginning
+        vehicle.commands.next = 0
     time.sleep(1)
 
 print 'Return to launch'
