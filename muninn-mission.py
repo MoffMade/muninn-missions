@@ -6,12 +6,13 @@ drone's missions accordingly. Helper functions contained in muninn_common.py
 """
 from dronekit import connect, VehicleMode, LocationGlobalRelative, LocationGlobal, Command
 import time
+import argparse
 import math
 from pymavlink import mavutil
 import muninn_common as muninn
 
 message_parameters = {'flight_mode': None, 'camera_mode': None, 'launch_land': None, 'hover_distance': None,
-                      'follow_distance': None, 'loop_radius': None, 'settings': None, 'GPS': None}
+                      'follow_distance': None, 'loop_radius': None, 'settings': None, 'GPS': {'lat': None, 'lon': None}}
 status_file = 'status.out'
 
 def parse_message(message):
@@ -25,15 +26,19 @@ def parse_message(message):
     message.split(';')
     for param in message:
         param.split(':')
-        new_parameters[param[0]] = param[1]
+        if param[0]=='GPS':
+            param[1].split(',')
+            new_parameters['GPS'] = {'lat': param[1][0], 'lon': param[1][1]}
+        else:
+            new_parameters[param[0]] = param[1]
     for key in message_parameters.keys():
         if new_parameters[key]:
             message_parameters[key] = new_parameters[key]
         else:
             message_parameters[key] = None
 
+
 # Set up option parsing to get connection string
-import argparse
 parser = argparse.ArgumentParser(
     description='Example which runs basic mission operations. Connects to SITL on local PC by default.')
 parser.add_argument('--connect', default='127.0.0.1:14550',
@@ -66,13 +71,13 @@ while True:
 
 
 print 'Create a new mission (for current location)'
-muninn.build_loop_mission(vehicle.location.global_frame, 50, 50)
+muninn.build_loop_mission(vehicle, vehicle.location.global_frame, 50, 50)
 
-muninn.arm_and_takeoff(10)
+muninn.arm_and_takeoff(vehicle, 10)
 
 print "Starting mission"
 # Reset mission set to first (0) waypoint
-vehicle.commands.next=0
+vehicle.commands.next = 0
 
 # Set mode to AUTO to start mission
 vehicle.mode = VehicleMode("AUTO")
@@ -92,7 +97,6 @@ while True:
 
 print 'Return to launch'
 vehicle.mode = VehicleMode("RTL")
-
 # Close vehicle object before exiting script
 print "Close vehicle object"
 vehicle.close()
