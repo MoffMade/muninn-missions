@@ -11,9 +11,10 @@ import math
 from pymavlink import mavutil
 
 
-#Set up option parsing to get connection string
+# Set up option parsing to get connection string
 import argparse
-parser = argparse.ArgumentParser(description='Example which runs basic mission operations. Connects to SITL on local PC by default.')
+parser = argparse.ArgumentParser(
+    description='Example which runs basic mission operations. Connects to SITL on local PC by default.')
 parser.add_argument('--connect', default='127.0.0.1:14550',
                    help="vehicle connection target. Default '127.0.0.1:14550'")
 args = parser.parse_args()
@@ -26,6 +27,7 @@ vehicle = connect(args.connect, wait_ready=True)
 
 def get_location_metres(original_location, dNorth, dEast):
     """
+    -------------CODE TAKEN DIRECTLY FROM DRONEKIT-PYTHON EXAMPLE CODE-------------
     Returns a LocationGlobal object containing the latitude/longitude `dNorth` and `dEast` metres from the
     specified `original_location`. The returned Location has the same `alt` value
     as `original_location`.
@@ -49,6 +51,7 @@ def get_location_metres(original_location, dNorth, dEast):
 
 def get_distance_metres(aLocation1, aLocation2):
     """
+    -------------CODE TAKEN DIRECTLY FROM DRONEKIT-PYTHON EXAMPLE CODE-------------
     Returns the ground distance in metres between two LocationGlobal objects.
 
     This method is an approximation, and will not be accurate over large distances and close to the
@@ -63,6 +66,7 @@ def get_distance_metres(aLocation1, aLocation2):
 
 def distance_to_current_waypoint():
     """
+    -------------CODE TAKEN DIRECTLY FROM DRONEKIT-PYTHON EXAMPLE CODE-------------
     Gets distance in metres to the current waypoint.
     It returns None for the first waypoint (Home location).
     """
@@ -80,6 +84,7 @@ def distance_to_current_waypoint():
 
 def download_mission():
     """
+    -------------CODE TAKEN DIRECTLY FROM DRONEKIT-PYTHON EXAMPLE CODE-------------
     Download the current mission from the vehicle.
     """
     cmds = vehicle.commands
@@ -96,6 +101,7 @@ def build_loop_mission(loop_center, loop_radius, altitude):
 
     The function assumes vehicle.commands matches the vehicle mission state
     (you must have called download at least once in the session and after clearing the mission)
+    Modified from Dronekit-python
     """
 
     cmds = vehicle.commands
@@ -107,20 +113,19 @@ def build_loop_mission(loop_center, loop_radius, altitude):
     # Add new commands. The meaning/order of the parameters is documented in the Command class.
 
     #Add MAV_CMD_NAV_TAKEOFF command. This is ignored if the vehicle is already in the air.
-    cmds.add(Command( 0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT, mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, 0, 0, 0, 0, 0, 0, 0, 0, 10))
+    cmds.add(Command( 0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
+                      mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, 0, 0, 0, 0, 0, 0, 0, 0, 10))
 
     #Define the four MAV_CMD_NAV_WAYPOINT locations and add the commands
     points = []
     for n in range(0,11,1):
-        points.append(get_location_metres((loop_center, sin(n*30)*loop_radius, cos(n*30)*loop_radius)))
+        points.append(get_location_metres((loop_center, math.sin(math.radians(n*30))*loop_radius,
+                                           math.cos(math.radians(n*30))*loop_radius)))
 
     for point in points:
-        cmds.add(Command( 0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT, mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, 0, 0, 0, 0, 0, 0, point.lat, point.lon, 11))
-    cmds.add(Command( 0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT, mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, 0, 0, 0, 0, 0, 0, point2.lat, point2.lon, 12))
-    cmds.add(Command( 0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT, mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, 0, 0, 0, 0, 0, 0, point3.lat, point3.lon, 13))
-    cmds.add(Command( 0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT, mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, 0, 0, 0, 0, 0, 0, point4.lat, point4.lon, 14))
-    #add dummy waypoint "5" at point 4 (lets us know when have reached destination)
-    cmds.add(Command( 0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT, mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, 0, 0, 0, 0, 0, 0, point4.lat, point4.lon, 14))
+        cmds.add(Command( 0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
+                          mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, 0, 0, 0, 0, 0, 0, point.lat, point.lon, altitude))
+
 
     print " Upload new commands to vehicle"
     cmds.upload()
@@ -128,6 +133,7 @@ def build_loop_mission(loop_center, loop_radius, altitude):
 
 def arm_and_takeoff(aTargetAltitude):
     """
+    -------------CODE TAKEN DIRECTLY FROM DRONEKIT-PYTHON EXAMPLE CODE-------------
     Arms vehicle and fly to aTargetAltitude.
     """
 
@@ -161,10 +167,8 @@ def arm_and_takeoff(aTargetAltitude):
 
 
 print 'Create a new mission (for current location)'
-adds_square_mission(vehicle.location.global_frame,50)
+build_loop_mission(vehicle.location.global_frame, 50, 50)
 
-
-# From Copter 3.3 you will be able to take off using a mission item. Plane must take off using a mission item (currently).
 arm_and_takeoff(10)
 
 print "Starting mission"
@@ -173,7 +177,6 @@ vehicle.commands.next=0
 
 # Set mode to AUTO to start mission
 vehicle.mode = VehicleMode("AUTO")
-
 
 # Monitor mission.
 # Demonstrates getting and setting the command number
@@ -184,19 +187,14 @@ while True:
     nextwaypoint=vehicle.commands.next
     print 'Distance to waypoint (%s): %s' % (nextwaypoint, distance_to_current_waypoint())
 
-    if nextwaypoint==3: #Skip to next waypoint
-        print 'Skipping to Waypoint 5 when reach waypoint 3'
-        vehicle.commands.next=5
-    if nextwaypoint==5: #Dummy waypoint - as soon as we reach waypoint 4 this is true and we exit.
-        print "Exit 'standard' mission when start heading to final waypoint (5)"
-        break;
+    if nextwaypoint==12:  # Dummy waypoint - as soon as we reach last loop, reset to beginning
+        vehicle.commands.next=0
     time.sleep(1)
 
 print 'Return to launch'
 vehicle.mode = VehicleMode("RTL")
 
-
-#Close vehicle object before exiting script
+# Close vehicle object before exiting script
 print "Close vehicle object"
 vehicle.close()
 
