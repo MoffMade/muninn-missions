@@ -4,18 +4,26 @@ __author__ = 'moff'
 Main loop for Muninn drone mission control. Reads bluetooth.out for commands from the mobile app and configures the
 drone's missions accordingly. Helper functions contained in muninn_common.py
 """
-from dronekit import connect, VehicleMode, LocationGlobalRelative, LocationGlobal, Command
-import time
-import argparse
-import os
-import math
-from pymavlink import mavutil
+from dronekit import connect, VehicleMode
 import muninn_common as muninn
+import argparse
+import time
+import os
+import sys
 
 message_parameters = {'flight_mode': None, 'camera_mode': None, 'launch_land': None, 'hover_distance': None,
                       'follow_distance': None, 'loop_radius': None, 'settings': None, 'GPS': {'lat': None, 'lon': None}}
 message_file_path = os.path.join(os.getcwd(), 'message.out')
 status_file_path = os.path.join(os.getcwd(), 'status.out')
+
+# Ensure that message file exists where expected, abort otherwise
+if not os.path.exists(message_file_path):
+    print "No message file found at %s, cannot proceed" % message_file_path
+    sys.exit("Fatal error - No message file found")
+
+# Initialize file times
+last_message_time = os.stat(message_file_path).st_mtime
+last_status_update = 0
 
 
 def parse_message(message):
@@ -51,8 +59,7 @@ args = parser.parse_args()
 # Connect to the Vehicle
 print 'Connecting to vehicle on: %s' % args.connect
 vehicle = connect(args.connect, wait_ready=True)
-last_message_time = os.stat(message_file_path).st_mtime
-last_status_update = 0
+
 while True:
     """
     Main mission loop:
@@ -64,19 +71,19 @@ while True:
         - For loop: Monitor for end of waypoint chain, reset to 0 if needed
     - Update status log every 5 seconds
     """
-    # Update status if 5 seconds has elapsed
+    # Update status if 8 seconds has elapsed
     if abs(time.time() - last_status_update) >= 8:
         with open(status_file_path, 'r+w') as status_file:
-            # ensure that status file is opened
+            # write status data to file
             status_file.write("STATUS:")
-        last_status_update = time.time()
+        last_status_update = time.time()  # Update last status time
 
     # Check for new message
     if os.stat(message_file_path).st_mtime > last_message_time:
         # New message has arrived since last check
         last_message_time = os.stat(message_file_path).st_mtime
         with open(message_file_path, 'r') as message_file:
-            parse_message(message_file.read())
+            parse_message(message_file.read())  # Open file and parse into message_parameters
 
     # Monitor mission
 
