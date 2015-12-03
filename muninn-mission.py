@@ -4,7 +4,7 @@ __author__ = 'moff'
 Main loop for Muninn drone mission control. Reads bluetooth.out for commands from the mobile app and configures the
 drone's missions accordingly. Helper functions contained in muninn_common.py
 """
-from dronekit import connect, VehicleMode
+from dronekit import connect, VehicleMode,LocationGlobalRelative
 import muninn_common as muninn
 import argparse
 import time
@@ -22,30 +22,33 @@ if not os.path.exists(message_file_path):
     sys.exit("Fatal error - No message file found")
 
 # Initialize file times
-last_message_time = os.stat(message_file_path).st_mtime
+last_message_time = 0
 last_status_update = 0
 
 
-def parse_message(message):
+def parse_message(msg):
     """
     Parses message from the bluetooth connection to the muninn app, if parameter is not present in the message it is
     set to None
-    :param message: New message string from bluetooth.out
+    :param msg: New message string from bluetooth.out
     Updates the message_parameters values
     """
+    print msg
     new_parameters = dict()
-    message.split(';')
-    for param in message:
-        param.split(':')
+    parsed = msg.strip(';').split(';')  # remove trailing delimiter and split on others
+    print parsed
+    for param in parsed:
+        param = param.split(':')
+        print param
         if param[0] == 'GPS':
-            param[1].split(',')
+            param[1] = param[1].split(',')
             new_parameters['GPS'] = {'lat': param[1][0], 'lon': param[1][1]}
         else:
             new_parameters[param[0]] = param[1]
     for key in message_parameters.keys():
-        if new_parameters[key]:
+        try:
             message_parameters[key] = new_parameters[key]
-        else:
+        except KeyError:
             message_parameters[key] = None
 
 
@@ -60,6 +63,9 @@ args = parser.parse_args()
 print 'Connecting to vehicle on: %s' % args.connect
 vehicle = connect(args.connect, wait_ready=True)
 
+mission_updated = False
+muninn_launched = False
+
 while True:
     """
     Main mission loop:
@@ -73,7 +79,7 @@ while True:
     """
     # Update status if 8 seconds has elapsed
     if abs(time.time() - last_status_update) >= 8:
-        with open(status_file_path, 'r+w') as status_file:
+        with open(status_file_path, 'w') as status_file:
             # write status data to file
             status_file.write("STATUS:")
         last_status_update = time.time()  # Update last status time
@@ -83,11 +89,54 @@ while True:
         # New message has arrived since last check
         last_message_time = os.stat(message_file_path).st_mtime
         with open(message_file_path, 'r') as message_file:
-            parse_message(message_file.read())  # Open file and parse into message_parameters
+            message = message_file.read()
+            parse_message(message)  # Open file and parse into message_parameters
+            mission_updated = True
+        print message_parameters
 
     # Monitor mission
+    if mission_updated:
+        if message_parameters['launch_land'] == 'launch':
+            muninn.arm_and_takeoff(vehicle, message_parameters['hover_distance'])
+            muninn_launched = True
+
+        elif message_parameters['launch_land'] == 'land':
+            muninn.land_and_disarm(vehicle)
+            muninn_launched = False
+
+        elif message_parameters['flight_mode'] == 'hover':
+            with muninn_launched:
+                muninn.build_hover_mission(vehicle,
+                                           LocationGlobalRelative(message_parameters['GPS']['lat'],
+                                                                  message_parameters['GPS']['lon'],
+                                                                  message_parameters['hover_distance']),
+                                           message_parameters['hover_distance'])
+
+        elif message_parameters['flight_mode'] == 'loop':
+            with muninn_launched:
+                muninn.build_loop_mission(vehicle,
+                                          LocationGlobalRelative(message_parameters['GPS']['lat'],
+                                                                 message_parameters['GPS']['lon'],
+                                                                 message_parameters['hover_distance']),
+                                          message_parameters['loop_radius'],
+                                          message_parameters['hover_distance'])
+
+        elif message_parameters['flight_mode'] == 'follow':
+            with muninn_launched:
+                muninn.add_to_follow_mission(vehicle,
+                                             LocationGlobalRelative(message_parameters['GPS']['lat'],
+                                                                    message_parameters['GPS']['lon'],
+                                                                    message_parameters['hover_distance']),
+                                             message_parameters['hover_distance'])
+
+    if message_parameters['flight_mode'] == 'loop':
+        nextwaypoint = vehicle.commands.next
+        print 'Distance to waypoint (%s): %s' % (nextwaypoint, muninn.distance_to_current_waypoint(vehicle))
+        if nextwaypoint == 12:  # Dummy waypoint - as soon as we reach last loop, reset to beginning
+            vehicle.commands.next = 0
 
 
+"""
 print 'Create a new mission (for current location)'
 muninn.build_loop_mission(vehicle, vehicle.location.global_frame, 50, 50)
 
@@ -113,8 +162,7 @@ while True:
         vehicle.commands.next = 0
     time.sleep(1)
 
-print 'Return to launch'
-vehicle.mode = VehicleMode("RTL")
 # Close vehicle object before exiting script
 print "Close vehicle object"
 vehicle.close()
+"""

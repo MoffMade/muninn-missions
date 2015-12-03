@@ -42,6 +42,15 @@ def arm_and_takeoff(vehicle, target_altitude):
         time.sleep(1)
 
 
+def land_and_disarm(vehicle):
+    """
+
+    :return:
+    """
+    print 'Returning to launch'
+    vehicle.mode = VehicleMode("RTL")
+
+
 def get_location_metres(original_location, d_north, d_east):
     """
     -------------CODE TAKEN DIRECTLY FROM DRONEKIT-PYTHON EXAMPLE CODE-------------
