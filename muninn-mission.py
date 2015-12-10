@@ -192,10 +192,12 @@ def build_loop_mission(loop_center, loop_radius, altitude):
         print (point.lat, point.lon, altitude)
         cmds.add(Command(0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT, mavutil.mavlink.MAV_CMD_NAV_SPLINE_WAYPOINT,
                          0, 0, 0, 0, 0, 0, point.lat, point.lon, float(altitude)))
-        if n == 11:
-            cmds.add(Command(0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
+        if n == 0:
+            first = Command(0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
                              mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, 0, 0, 0, 0, 0, 0,
-                             point.lat, point.lon, float(altitude)))
+                             point.lat, point.lon, float(altitude))
+        if n == 11:
+            cmds.add(first)  # finish the loop
 
     return cmds
 
@@ -341,7 +343,7 @@ while True:
             muninn_launched = True
 
         else:
-            vehicle.mode = "GUIDED"
+            vehicle.mode = VehicleMode("GUIDED")
             # Takes care of non launch/land commands and ensures that drone is in AUTO mode
             if message_parameters['flight_mode'] == 'hover':
                 print 'Hover mode set'
@@ -395,7 +397,7 @@ while True:
     if message_parameters['flight_mode'] == 'loop':
         mission = download_mission()  # Allows for updating the mission on drone
         nextwaypoint = vehicle.commands.next
-        if nextwaypoint == 13:  # Dummy waypoint - as soon as we reach last loop, reset to beginning
+        if nextwaypoint >= 14:  # Dummy waypoint - as soon as we reach last loop, reset to beginning
             vehicle.commands.next = 1
 
 
