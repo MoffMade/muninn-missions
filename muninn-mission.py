@@ -4,7 +4,7 @@ __author__ = 'moff'
 Main loop for Muninn drone mission control. Reads bluetooth.out for commands from the mobile app and configures the
 drone's missions accordingly. Helper functions contained in muninn_common.py
 """
-from dronekit import connect, Command, LocationGlobalRelative, LocationGlobal, VehicleMode
+from dronekit import connect, Command, LocationGlobalRelative, LocationGlobal, VehicleMode, APIException
 import argparse
 import time
 import os
@@ -16,7 +16,7 @@ FOLLOW_THRESHOLD = 1.5  # Used to decide if new location should be added to miss
 
 # Set up option parsing to get connection string
 parser = argparse.ArgumentParser(
-    description='Example which runs basic mission operations. Connects to SITL on local PC by default.')
+    description='Example which runs muninn mission operations. Connects to SITL on local PC by default.')
 parser.add_argument('--connect', default='127.0.0.1:14550',
                     help="vehicle connection target. Default '127.0.0.1:14550'")
 parser.add_argument('--path', default=os.getcwd(),
@@ -39,8 +39,12 @@ last_message_time = 0
 last_status_update = 0
 
 # Connect to the Vehicle
-print 'Connecting to vehicle on: %s' % args.connect
-vehicle = connect(args.connect, wait_ready=True)
+try:
+    print 'Connecting to vehicle on: %s' % args.connect
+    vehicle = connect(args.connect, wait_ready=True)
+except APIException:
+    print 'Connection failed. Aborting'
+    sys.exit('Fatal Error - No connection to drone')
 
 mission_updated = False
 muninn_launched = False
@@ -86,7 +90,8 @@ def land_and_disarm():
 
     :return:
     """
-    print 'Returning to launch'
+    print "Land command recv"
+    print 'Returning to launch point'
     vehicle.mode = VehicleMode("RTL")
 
 
@@ -154,6 +159,7 @@ def download_mission():
     cmds = vehicle.commands
     cmds.download()
     cmds.wait_ready()  # wait until download is complete.
+    return cmds
 
 
 def build_loop_mission(loop_center, loop_radius, altitude):
@@ -173,24 +179,25 @@ def build_loop_mission(loop_center, loop_radius, altitude):
     cmds.clear()
 
     print " Building loop waypoints."
-    # Add new commands. The meaning/order of the parameters is documented in the Command class.
-    # Define the twelve MAV_CMD_NAV_WAYPOINT locations and add the commands and last dummy waypoint
+    # Add a TAKEOFF message to ensure that drone is at proper altitude
     cmds.add(Command(0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT, mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
                      0, 0, 0, 0, 0, 0, 0, 0, float(altitude)))
+
+    # Define the twelve MAV_CMD_NAV_WAYPOINT locations and add the commands and last dummy waypoint
     for n in range(0, 12, 1):
         print "Adding waypoint %d to mission" % n
         d_north = math.sin(math.radians(n*30))*float(loop_radius)
         d_east = math.cos(math.radians(n*30))*float(loop_radius)
         point = get_location_metres(loop_center, float(d_north), float(d_east))
-        cmds.add(Command(0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT, mavutil.mavlink.MAV_CMD_NAV_WAYPOINT,
+        print (point.lat, point.lon, altitude)
+        cmds.add(Command(0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT, mavutil.mavlink.MAV_CMD_NAV_SPLINE_WAYPOINT,
                          0, 0, 0, 0, 0, 0, point.lat, point.lon, float(altitude)))
         if n == 11:
             cmds.add(Command(0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
                              mavutil.mavlink.MAV_CMD_NAV_WAYPOINT, 0, 0, 0, 0, 0, 0,
                              point.lat, point.lon, float(altitude)))
 
-    print " Upload new commands to vehicle"
-    cmds.upload()
+    return cmds
 
 
 def build_hover_mission(hover_location, altitude):
@@ -209,14 +216,13 @@ def build_hover_mission(hover_location, altitude):
     print " Building hover waypoint"
     # Add new commands. The meaning/order of the parameters is documented in the Command class.
 
-    # Add MAV_CMD_NAV_TAKEOFF command. This is ignored if the vehicle is already in the air.
+    # Add MAV_CMD_NAV_TAKEOFF command. This is ignored if the vehicle is already in the air. Ensures altitude
     cmds.add(Command(0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT, mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
                      0, 0, 0, 0, 0, 0, 0, 0, float(altitude)))
-    cmds.add(Command(0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT, mavutil.mavlink.MAV_CMD_NAV_WAYPOINT,
+    cmds.add(Command(0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT, mavutil.mavlink.MAV_CMD_NAV_SPLINE_WAYPOINT,
                      0, 0, 0, 0, 0, 0, float(hover_location.lat), float(hover_location.lon), float(altitude)))
 
-    print " Upload new commands to vehicle"
-    cmds.upload()
+    return cmds
 
 
 def add_to_follow_mission(next_location, altitude):
@@ -243,16 +249,14 @@ def add_to_follow_mission(next_location, altitude):
 
     print " Building follow me waypoints"
     # Add the previous waypoint.No Takeoff command because it should aready be in the air
-    cmds.add(Command(0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT, mavutil.mavlink.MAV_CMD_NAV_WAYPOINT,
+    cmds.add(Command(0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT, mavutil.mavlink.MAV_CMD_NAV_SPLINE_WAYPOINT,
                      0, 0, 0, 0, 0, 0, current_waypoint_location.lat, current_waypoint_location.lon, float(altitude)))
     # If the distance between the new location and the previous waypoint exceeds the FOLLOW_THRESHOLD, add to mission
     if get_distance_metres(current_waypoint_location, next_location) >= FOLLOW_THRESHOLD:
-        cmds.add(Command(0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT, mavutil.mavlink.MAV_CMD_NAV_WAYPOINT,
+        cmds.add(Command(0, 0, 0, mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT, mavutil.mavlink.MAV_CMD_NAV_SPLINE_WAYPOINT,
                          0, 0, 0, 0, 0, 0, float(next_location.lat), float(next_location.lon), float(altitude)))
 
-    # Upload the commands to the drone
-    print " Upload new commands to vehicle"
-    cmds.upload()
+    return cmds
 
 
 def parse_message(msg):
@@ -278,13 +282,14 @@ def parse_message(msg):
                 message_parameters[key] = new_parameters[key]
             except KeyError:
                 message_parameters[key] = None
-
+        return True
     except IndexError:
         print "Ill formed message, skipping read"
+        return False
 
-# arm_and_takeoff(10)  # For testing of Simulated drone
 
 # Starting the mission loop
+mission = None
 while True:
     """
     Main mission loop:
@@ -294,10 +299,11 @@ while True:
     - Monitor mission
         - For all:  Ensure drone is in good health (battery level, connection, etc)
         - For loop: Monitor for end of waypoint chain, reset to 0 if needed
-    - Update status log every 5 seconds
+    - Update status log every 8 seconds
     """
     # Update status if 8 seconds has elapsed
     if abs(time.time() - last_status_update) >= 8:
+        mission = download_mission()
         with open(status_file_path, 'w') as status_file:
             # write status data to file
             status_file.write("STATUS:")
@@ -305,81 +311,92 @@ while True:
 
     # Check for new message
     if os.stat(message_file_path).st_mtime > last_message_time:
-        time.sleep(.01)
+        time.sleep(.01)  # wait a short time to access
         # New message has arrived since last check
         print 'New message recv'
         last_message_time = os.stat(message_file_path).st_mtime
         with open(message_file_path, 'r') as message_file:
             message = message_file.read()
-            parse_message(message)  # Open file and parse into message_parameters
-            mission_updated = True
+            mission_updated = parse_message(message)  # Open file and parse into message_parameters
         print message_parameters
 
     # Monitor mission
     if mission_updated:
-        download_mission()  # Allows for updating the mission on drone
+        mission = download_mission()  # Allows for updating the mission on drone
 
         # Land commands
         if message_parameters['launch_land'] == 'land' and muninn_launched:
             # Check if currently returning to landing location
-            print "Land command recv"
             if vehicle.mode.name != "RTL":
                 land_and_disarm()
             # If vehicle has landed, toggle flag
-            if vehicle.location == vehicle.home_location:
+            if not vehicle.armed:
                 print "Landed, setting flag"
                 muninn_launched = False
-        else:
-            # Launch commands
-            if message_parameters['launch_land'] == 'launch' and not muninn_launched:
-                print "Launch command recv"
-                arm_and_takeoff(message_parameters['hover_distance'])
-                muninn_launched = True
 
+        # Launch commands
+        elif message_parameters['launch_land'] == 'launch' and not muninn_launched:
+            print "Launch command recv"
+            arm_and_takeoff(message_parameters['hover_distance'])
+            muninn_launched = True
+
+        else:
+            vehicle.mode = "GUIDED"
             # Takes care of non launch/land commands and ensures that drone is in AUTO mode
-            elif message_parameters['flight_mode'] == 'hover':
+            if message_parameters['flight_mode'] == 'hover':
                 print 'Hover mode set'
                 if muninn_launched:
-                    build_hover_mission(LocationGlobalRelative(message_parameters['GPS']['lat'],
+                    mission = build_hover_mission(LocationGlobalRelative(message_parameters['GPS']['lat'],
                                                                message_parameters['GPS']['lon'],
                                                                message_parameters['hover_distance']),
                                         message_parameters['hover_distance'])
                 else:
                     print 'Must launch before setting flight mode'
+                    pass
 
             elif message_parameters['flight_mode'] == 'loop':
                 print 'Loop mode set'
                 if muninn_launched:
-                    build_loop_mission(LocationGlobalRelative(message_parameters['GPS']['lat'],
+                    mission = build_loop_mission(LocationGlobalRelative(message_parameters['GPS']['lat'],
                                                               message_parameters['GPS']['lon'],
                                                               message_parameters['hover_distance']),
                                        message_parameters['loop_radius'],
                                        message_parameters['hover_distance'])
                 else:
                     print 'Must launch before setting flight mode'
+                    pass
 
             elif message_parameters['flight_mode'] == 'follow':
                 print 'Loop mode set'
                 if muninn_launched:
-                    add_to_follow_mission(LocationGlobalRelative(message_parameters['GPS']['lat'],
+                    mission = add_to_follow_mission(LocationGlobalRelative(message_parameters['GPS']['lat'],
                                                                  message_parameters['GPS']['lon'],
                                                                  message_parameters['hover_distance']),
                                           message_parameters['hover_distance'])
                 else:
                     print 'Must launch before setting flight mode'
+                    pass
 
-            print "Starting new mission"
-            # Reset mission set to first (0) waypoint
-            vehicle.commands.next = 0
-            # Set mode to AUTO to start mission
-            vehicle.mode = VehicleMode("AUTO")
-            mission_updated = False
+            else:
+                print 'Invalid flight mode, skipping.'
+                pass
+            try:
+                print "Upload new commands to vehicle"
+                mission.upload()
+                print "Starting new mission"
+                # Reset mission set to first (0) waypoint
+                vehicle.commands.next = 0
+                # Set mode to AUTO to start mission
+                vehicle.mode = VehicleMode("AUTO")
+                mission_updated = False
+            except AttributeError:
+                print "Mission not planned correctly. Trying again"
 
     if message_parameters['flight_mode'] == 'loop':
-        download_mission()  # Allows for updating the mission on drone
+        mission = download_mission()  # Allows for updating the mission on drone
         nextwaypoint = vehicle.commands.next
         if nextwaypoint == 13:  # Dummy waypoint - as soon as we reach last loop, reset to beginning
-            vehicle.commands.next = 0
+            vehicle.commands.next = 1
 
 
 # Close vehicle object before exiting script on shutdown
